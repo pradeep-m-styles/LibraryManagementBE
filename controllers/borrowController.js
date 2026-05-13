@@ -1,171 +1,86 @@
 const Borrow = require("../models/Borrow");
-
 const Book = require("../models/Book");
 
-const User = require("../models/User");
-
-const sendEmail = require("../utils/sendEmail");
-
-
-// Borrow Book
-const borrowBook = async (req, res) => {
-
+// BORROW BOOK
+exports.borrowBook = async (req, res) => {
   try {
-
     const { userId, bookId } = req.body;
+
+    // prevent duplicate borrow
+    const existing = await Borrow.findOne({
+      userId,
+      bookId,
+      returned: false
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: "Already borrowed this book" });
+    }
 
     const book = await Book.findById(bookId);
 
-    if (!book) {
-      return res.status(404).json({
-        message: "Book not found"
-      });
+    if (!book || book.quantity <= 0) {
+      return res.status(400).json({ message: "Book not available" });
     }
 
-    if (book.quantity <= 0) {
-      return res.status(400).json({
-        message: "Book unavailable"
-      });
-    }
+    book.quantity -= 1;
+    book.available = book.quantity > 0;
+    await book.save();
 
     const dueDate = new Date();
-
     dueDate.setDate(dueDate.getDate() + 7);
 
     const borrow = await Borrow.create({
-      user: userId,
-      book: bookId,
-      dueDate
+      userId,
+      bookId,
+      borrowDate: new Date(),
+      dueDate,
+      returned: false,
+      fine: 0
     });
 
-    // Reduce Quantity
-    book.quantity -= 1;
+    res.status(201).json(borrow);
 
-    if (book.quantity === 0) {
-      book.available = false;
-    }
-
-    await book.save();
-
-    // Send Email
-    const user = await User.findById(userId);
-
-    await sendEmail(
-      user.email,
-      "Book Borrowed",
-      `You borrowed "${book.title}" successfully.`
-    );
-
-    res.status(201).json({
-      message: "Book borrowed successfully",
-      borrow
-    });
-
-  } catch (error) {
-
-    res.status(500).json({
-      message: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
 
 
-
-// Return Book
-const returnBook = async (req, res) => {
-
+// RETURN BOOK
+exports.returnBook = async (req, res) => {
   try {
+    const { borrowId } = req.body;
 
-    const borrow = await Borrow.findById(req.params.id);
+    const borrow = await Borrow.findById(borrowId);
 
     if (!borrow) {
-      return res.status(404).json({
-        message: "Borrow record not found"
-      });
+      return res.status(404).json({ message: "Borrow record not found" });
     }
 
-    if (borrow.returnDate) {
-      return res.status(400).json({
-        message: "Book already returned"
-      });
-    }
+    const book = await Book.findById(borrow.bookId);
 
-    const returnDate = new Date();
+    borrow.returned = true;
+    borrow.returnDate = new Date();
 
-    borrow.returnDate = returnDate;
+    const diffDays = Math.ceil(
+      (new Date() - new Date(borrow.dueDate)) / (1000 * 60 * 60 * 24)
+    );
 
-    let fine = 0;
-
-    // Fine Calculation
-    if (returnDate > borrow.dueDate) {
-
-      const daysLate = Math.ceil(
-        (returnDate - borrow.dueDate) /
-        (1000 * 60 * 60 * 24)
-      );
-
-      fine = daysLate * 10;
-    }
-
-    borrow.fine = fine;
+    borrow.fine = diffDays > 0 ? diffDays * 10 : 0;
 
     await borrow.save();
 
-    // Update Book Quantity
-    const book = await Book.findById(borrow.book);
-
     book.quantity += 1;
-
     book.available = true;
-
     await book.save();
-
-    // Send Email
-    const user = await User.findById(borrow.user);
-
-    await sendEmail(
-      user.email,
-      "Book Returned",
-      `You returned "${book.title}" successfully. Fine: ₹${fine}`
-    );
 
     res.json({
       message: "Book returned successfully",
-      fine
+      fine: borrow.fine
     });
 
-  } catch (error) {
-
-    res.status(500).json({
-      message: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-};
-
-
-
-// Get Borrow Records
-const getBorrowRecords = async (req, res) => {
-
-  try {
-
-    const records = await Borrow.find()
-      .populate("user", "name email")
-      .populate("book", "title author");
-
-    res.json(records);
-
-  } catch (error) {
-
-    res.status(500).json({
-      message: error.message
-    });
-  }
-};
-
-
-module.exports = {
-  borrowBook,
-  returnBook,
-  getBorrowRecords
 };
