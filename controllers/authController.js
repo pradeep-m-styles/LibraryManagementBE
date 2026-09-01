@@ -1,48 +1,37 @@
-const User = require("../models/User");
-
-const bcrypt = require("bcryptjs");
-
-const generateToken = require("../utils/generateToken");
+const Book = require("../models/Book");
 
 
-// Register
-const registerUser = async (req, res) => {
-
+// ADD BOOK
+const addBook = async (req, res) => {
   try {
+    const {
+      title,
+      author,
+      isbn,
+      genre,
+      publicationYear,
+      quantity
+    } = req.body;
 
-    const { name, email, password } = req.body;
+    const bookQuantity = quantity !== undefined ? quantity : 1;
 
-    const userExists = await User.findOne({ email });
+    const newBook = new Book({
+      title,
+      author,
+      isbn,
+      genre,
+      publicationYear,
+      quantity: bookQuantity,
 
-    if (userExists) {
-      return res.status(400).json({
-        message: "User already exists"
-      });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-
-    const hashedPassword = await bcrypt.hash(
-      password,
-      salt
-    );
-
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword
+      // Available only when quantity is greater than 0
+      available: bookQuantity > 0
     });
 
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      token: generateToken(user._id)
-    });
+    const savedBook = await newBook.save();
+
+    res.status(201).json(savedBook);
 
   } catch (error) {
-
     res.status(500).json({
       message: error.message
     });
@@ -50,37 +39,102 @@ const registerUser = async (req, res) => {
 };
 
 
-// Login
-const loginUser = async (req, res) => {
-
+// GET ALL BOOKS
+const getBooks = async (req, res) => {
   try {
+    const books = await Book.find();
 
-    const { email, password } = req.body;
+    res.json(books);
 
-    const user = await User.findOne({ email });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message
+    });
+  }
+};
 
-    if (
-      user &&
-      (await bcrypt.compare(password, user.password))
-    ) {
 
-      res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user._id)
-      });
+// GET SINGLE BOOK
+const getBookById = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id);
 
-    } else {
-
-      res.status(401).json({
-        message: "Invalid email or password"
+    if (!book) {
+      return res.status(404).json({
+        message: "Book not found"
       });
     }
 
-  } catch (error) {
+    res.json(book);
 
+  } catch (error) {
+    res.status(500).json({
+      message: error.message
+    });
+  }
+};
+
+
+// UPDATE BOOK
+const updateBook = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id);
+
+    if (!book) {
+      return res.status(404).json({
+        message: "Book not found"
+      });
+    }
+
+    book.title = req.body.title || book.title;
+    book.author = req.body.author || book.author;
+    book.isbn = req.body.isbn || book.isbn;
+    book.genre = req.body.genre || book.genre;
+    book.publicationYear =
+      req.body.publicationYear || book.publicationYear;
+
+    // Allow quantity = 0
+    if (req.body.quantity !== undefined) {
+      book.quantity = req.body.quantity;
+    }
+
+    if (req.body.image !== undefined) {
+      book.image = req.body.image;
+    }
+
+    // Available only when quantity > 0
+    book.available = book.quantity > 0;
+
+    const updatedBook = await book.save();
+
+    res.json(updatedBook);
+
+  } catch (error) {
+    res.status(500).json({
+      message: error.message
+    });
+  }
+};
+
+
+// DELETE BOOK
+const deleteBook = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id);
+
+    if (!book) {
+      return res.status(404).json({
+        message: "Book not found"
+      });
+    }
+
+    await book.deleteOne();
+
+    res.json({
+      message: "Book removed"
+    });
+
+  } catch (error) {
     res.status(500).json({
       message: error.message
     });
@@ -89,6 +143,10 @@ const loginUser = async (req, res) => {
 
 
 module.exports = {
-  registerUser,
-  loginUser
+  addBook,
+  getBooks,
+  getBookById,
+  updateBook,
+  deleteBook
 };
+```
